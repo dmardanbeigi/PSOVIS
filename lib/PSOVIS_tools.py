@@ -1,38 +1,42 @@
-# import matplotlib
-# from math import atan2
+'''
+Created on Sep 22, 2016
+@author: Diako
+
+------------------------------------------------------ License
+
+This file is part of PSOVIS - an interactive code for extracting post-saccadic eye movements from the eye tracking data
+Copyright (C) 2016-2019  Diako Mardanbegi
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>
+
+------------------------------------------------------
+'''
+
+
 import math
 from skimage.external.tifffile.tifffile import astype
 blit=False
 from pylab import *
-# import csv
+
 import numpy as np
-# import matplotlib.pyplot as plt
-# 
 from scipy.spatial import distance
-# from itertools import cycle
 from scipy.signal import argrelmax, argrelmin,argrelextrema
 import matplotlib
-# import matplotlib.gridspec as gridspec
-# from matplotlib.widgets import *
-# from matplotlib.patches import Rectangle
 from collections import defaultdict
-# import re
-# import colorsys
 import pandas as pd
-
-# from collections import OrderedDict
-# import math
 from scipy.optimize import leastsq
-# from pandas import Series, DataFrame
-# 
-# import numpy as np
-# from pandas import Series, DataFrame
-# import pandas as pd
 import matplotlib.pyplot as plt
-# import math as math
-# from pylab import *
-# from scipy.optimize import curve_fit
-
 import os
 
 def W(s): 
