@@ -1,3 +1,5 @@
+![alt text](https://github.com/dmardanbeigi/PSOVIS/blob/master/results/exp1/Vids_ad138fb.png)
+
 # PSOVIS
 
 This a python code for extracitng post saccadic oscillations from eye movement data. It's currenlty tested on SR Eyelink 1000 tracker but it should work with the eye data recorded from other trackers. 
