@@ -19,9 +19,11 @@ TODO: (search for TODO name to find out where you can add your implementation)
 - TODO_1: adding saccade and fixation detection in the absence of "_IN_SACCADE" 
 - TODO_2: adding velocity and acceleration column if it's not provided in the file
 
+# More details:
+http://cogain2017.cogain.org/camready/talk6-Mardanbegi.pdf
 
 
------------------------------------------------------- License
+# License
 
 This file is part of PSOVIS - an interactive code for extracting post-saccadic eye movements from the eye tracking data
 Copyright (C) 2016-2019  Diako Mardanbegi
