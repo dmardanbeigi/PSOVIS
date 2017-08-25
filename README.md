@@ -6,10 +6,10 @@ ASSUMPTIONS:
 
 - Only monocular data, having both eyes ("RIGHT_..." and "LEFT_...") or only one
 - column titles in the data file:
--     Eye data: all eye-related columns should be started with either "RIGHT_..." OR "LEFT_...":
--         "RIGHT_GAZE_X","RIGHT_GAZE_Y","RIGHT_VELOCITY_X", "RIGHT_IN_SACCADE", "RIGHT_PUPIL_SIZE" (optional) , "SAMPLE_MESSAGE" (optional. set event MSGs in the code)
--     other columns:
--         "TIMESTAMP" (integer and measured in milisecond), 
++ Eye data: all eye-related columns should be started with either "RIGHT_..." OR "LEFT_...":
++ "RIGHT_GAZE_X","RIGHT_GAZE_Y","RIGHT_VELOCITY_X", "RIGHT_IN_SACCADE", "RIGHT_PUPIL_SIZE" (optional) , "SAMPLE_MESSAGE" (optional. set event MSGs in the code)
++ other columns:
++ "TIMESTAMP" (integer and measured in milisecond), 
 - See the constant values used in the GetPSO function
 - Change screen values in the pixels_to_degrees() to match your setup
 
