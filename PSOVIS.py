@@ -270,7 +270,7 @@ for idx, participant in enumerate(participants):
     
     
     ax_gaze_x=plt.subplot(gs[0:2,1:4])
-    ax_gaze_y=plt.subplot(gs[2:3,1:4])
+    ax_gaze_y=plt.subplot(gs[2:3,1:4],sharex=ax_gaze_x)
     
     ax_screen=plt.subplot(gs[3:5,1:2])
     ax_PSO_ch1=plt.subplot(gs[3:5,2:3])
