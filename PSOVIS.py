@@ -66,7 +66,7 @@ from lib import PSOVIS_tools as PSOVIS_tools
 # import seaborn as sns
 
 
-Experiment='exp1'
+Experiment='pso'
 
 folder_data='./data/' + Experiment + '/'
 folder_tables='./data/' + Experiment + '/processed_tables/'
@@ -89,8 +89,12 @@ fixation_window=30 ## [in ms]
 datafile_prefix='.xls'
 delimiter="\t"
 
-target_onset_msg='Target_display'#OR leave it empty ''
-target_timeout_msg='Target_timeout'#OR leave it empty ''
+# target_onset_msg='Target_display'#OR leave it empty ''
+# target_timeout_msg='Target_timeout'#OR leave it empty ''
+target_onset_msg=''#OR leave it empty ''
+target_timeout_msg=''#OR leave it empty ''
+
+
 
 Show_Visualizer=True
 IgnoreErrors=False
@@ -129,7 +133,7 @@ for idx, participant in enumerate(participants):
         saccades= pd.read_pickle(participant_table_file)
         
     else:
-
+        print('extracting saccades for %s'%participant)
 
         saccades=PSOVIS_tools.ExtractSaccades(participant,folder_data+participant+datafile_prefix,Experiment,'control',delimiter,target_onset_msg,target_timeout_msg,include_right,offset_right,fixation_window)
         saccades.loc[:,'angle_group_selected']=1
@@ -140,9 +144,11 @@ for idx, participant in enumerate(participants):
         
 
 
+    if saccades.empty:
+        print('no PSO found for %s'%participant)
+        continue
         
-        
-    print(saccades.head(2))
+#     print(saccades.head(2))
         
     
             
@@ -160,11 +166,18 @@ for idx, participant in enumerate(participants):
             Angle_group=Angle_group
     else:
         # If not create the file
-#         open(folder_results + 'params.npz', 'w').close()
-        Amplitude_range=(saccades['amp_deg'].min(),saccades['amp_deg'].max())
+###         open(folder_results + 'params.npz', 'w').close()
+#         Amplitude_range=(saccades['amp_deg'].min(),saccades['amp_deg'].max())
+#         Velocity_range=(saccades['vel_av'].min(),saccades['vel_av'].max())
+#         Acceleration_range=(saccades['acc_av'].min(),saccades['acc_av'].max())
+#         Angle_group=[True,True,True]
+        Amplitude_range=(1,15)
         Velocity_range=(saccades['vel_av'].min(),saccades['vel_av'].max())
         Acceleration_range=(saccades['acc_av'].min(),saccades['acc_av'].max())
-        Angle_group=[True,True,True]
+        Angle_group=[True,False,False]
+        
+        
+        
         PSOVIS_tools.SaveParams(folder_results+'params.npz', Amplitude_range,Velocity_range,Acceleration_range,Angle_group)
     
 
@@ -202,11 +215,16 @@ for idx, participant in enumerate(participants):
         
     ## Load participant original data to access gaze data
     print('wait...')
-    participant_data = pd.read_csv(folder_data+participant+datafile_prefix, delimiter=delimiter, na_values=['.'], low_memory=True)
+
+    participant_data = pd.ExcelFile(folder_data+participant+datafile_prefix)
+    participant_data = participant_data.parse(participant_data.sheet_names[0])
+    participant_data=participant_data.replace('.', np.NaN)
     participant_data=participant_data.replace(np.NaN, 0) # this also converts the columns data types to float if possible
+    participant_data=participant_data.apply(pd.to_numeric, errors='ignore')
+   
 
 
-    
+
 
     Gaze_x=participant_data[saccades.eye_tracked.iloc[0] +'_GAZE_X']
     Gaze_y=participant_data[saccades.eye_tracked.iloc[0]  +'_GAZE_Y']
@@ -216,7 +234,9 @@ for idx, participant in enumerate(participants):
     Gaze_y= np.array(Gaze_y).astype(float)
 
     TIMESTAMP=participant_data['TIMESTAMP']
-    timestamp_interval=TIMESTAMP[2]-TIMESTAMP[1]
+
+    
+    timestamp_interval=TIMESTAMP.iloc[2]-TIMESTAMP.iloc[1]
     include_right=int(include_right//timestamp_interval) # conver to frames
     offset_right=int(offset_right//timestamp_interval)
     fixation_window=int(fixation_window//timestamp_interval)
@@ -261,10 +281,11 @@ for idx, participant in enumerate(participants):
 
     ##..........................ax_ang_group: angle selection
     
+
     
     plt.sca(ax_ang_group)
     labels = ['Hor','Ver', 'Obl']
-    direction_histogram_values,XX=np.histogram(saccades['angle'], [0,1,2,3], normed=False)
+    direction_histogram_values,XX=np.histogram(list(saccades['angle_group']), [0,1,2,3], normed=False)
     
     ax1_bars=ax_ang_group.bar(XX[:-1],direction_histogram_values,color='grey',width=XX[1]-XX[0],picker=True)
     
@@ -281,18 +302,17 @@ for idx, participant in enumerate(participants):
     
     ##..........................ax_amp_hist: Amplitude
     plt.sca(ax_amp_hist)
-    n, bins, patches = plt.hist(saccades['amp_deg'], 50, normed=False, facecolor='gray', alpha=0.75)
+    n, bins, patches = plt.hist(list(saccades['amp_deg']), 50, normed=False, facecolor='gray', alpha=0.75)
     plt.title('amplitudes')
     plt.xticks( fontsize=8, rotation='vertical')
     plt.yticks( fontsize=8)
     plt.grid(True)
     ax_amp_hist_vspan=ax_amp_hist.axvspan(Amplitude_range[0], Amplitude_range[1], facecolor='g', alpha=0.5)
-    
-    
+
     
     ##..........................ax_vel_hist: Velocity
     plt.sca(ax_vel_hist)
-    n, bins, patches = plt.hist(saccades['vel_av'], 50, normed=False, facecolor='gray', alpha=0.75)
+    n, bins, patches = plt.hist(list(saccades['vel_av']), 50, normed=False, facecolor='gray', alpha=0.75)
     plt.title('velocities')
     plt.xticks( fontsize=8, rotation='vertical')
     plt.yticks( fontsize=8)
@@ -302,7 +322,7 @@ for idx, participant in enumerate(participants):
     
     ##..........................ax_acc_hist: acceleration
     plt.sca(ax_acc_hist)
-    n, bins, patches = plt.hist(saccades['acc_av'], 50, normed=False, facecolor='gray', alpha=0.75)
+    n, bins, patches = plt.hist(list(saccades['acc_av']), 50, normed=False, facecolor='gray', alpha=0.75)
     plt.title('Acceleration')
     plt.xticks( fontsize=8, rotation='vertical')
     plt.yticks( fontsize=8)
@@ -643,7 +663,7 @@ for idx, participant in enumerate(participants):
             
             plt.sca(ax_PSO_ch2)     
             
-            scatter_ax_PSO_ch2[sac.name],=plt.plot(sac['PSO_ch2'][:,0],sac['PSO_ch2'][:,1], 'o',markersize=0.5,color='black', alpha=alpha_normal,gid=sac.name,zorder=sac.name)
+#             scatter_ax_PSO_ch2[sac.name],=plt.plot(sac['PSO_ch2'][:,0],sac['PSO_ch2'][:,1], 'o',markersize=0.5,color='black', alpha=alpha_normal,gid=sac.name,zorder=sac.name)
             curves_ax_PSO_ch2[sac.name],=plt.plot(sac['PSO_ch2'][:,0],sac['PSO_ch2'][:,1], 'k', linewidth=linewidth_normal,color=c2,alpha=alpha_normal,gid=sac.name,zorder=sac.name,picker=True)
     
             
@@ -651,8 +671,8 @@ for idx, participant in enumerate(participants):
             ##........................Selected Saccades
             plt.sca(ax_screen)
             
-            x=Gaze_x[sac['start_row']:sac['end_row']]
-            y=Gaze_y[sac['start_row']:sac['end_row']]
+            x=Gaze_x[sac['start_row']-include_right:sac['end_row']+include_right]
+            y=Gaze_y[sac['start_row']-include_right:sac['end_row']+include_right]
  
 #             if sac.name==618:
 #                 print(sac['start_row'],sac['end_row'])

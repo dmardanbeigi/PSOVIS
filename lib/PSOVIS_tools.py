@@ -25,7 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 
 
 import math
-from skimage.external.tifffile.tifffile import astype
+# from skimage.external.tifffile.tifffile import astype
 blit=False
 from pylab import *
 
@@ -78,8 +78,9 @@ def CalculateAngle2(p1,p2):
 
 
 # GetPSO
-def Create_Folder(dir):
-    print ('creating result folder: '+ dir)   
+def Create_Folder(dir,print_msg=True):
+    if(print_msg):
+        print ('creating result folder: '+ dir)   
     if not os.path.exists(dir):
         os.makedirs(dir)
 
@@ -264,22 +265,31 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
     return {'PSO_max_row':PSO_max_row,'PSO_min_row':PSO_min_row , 'amp_pix_ch1':PSO_amp, 'amp_deg':PSO_amp_deg ,'channel_1':np.array(GAZE['CH1'].tolist()),'channel_2':np.array(GAZE['CH2'].tolist()),'gaze_at_start':A,'gaze_at_end':B}
     
 
-# ExtractSaccades
+
 def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,target_timeout_msg,include_right,offset_right,fixation_window):
     
     
 
 
-    columns=['name','group','eye_tracked','reaction_time','amp_pix','amp_deg','vel_av','peak_vel','acc_av','pupil_size','angle','trial_index','start_row','end_row','PSO_ch1','PSO_ch2','PSO_amp_deg']
+    columns=['name','group','eye_tracked',
+             'reaction_time','amp_pix','amp_deg','vel_av','peak_vel','acc_av','pupil_size','angle',
+             'trial_index','start_row','end_row',
+             'PSO_ch1','PSO_ch2','PSO_amp_deg','PSO_min_row']
 
     
     
-    participant_data = pd.read_csv(file, delimiter=delimiter, na_values=['.'], low_memory=True)
+#     participant_data = pd.read_csv(file, delimiter=delimiter, na_values=['.'], low_memory=True)
     
-    
+    participant_data = pd.ExcelFile(file)
+    participant_data = participant_data.parse(participant_data.sheet_names[0])
+    participant_data=participant_data.replace('.', np.NaN)
     participant_data=participant_data.replace(np.NaN, 0) # this also converts the columns data types to float if possible
+    participant_data=participant_data.apply(pd.to_numeric, errors='ignore')
+   
 
+   
 
+    
 
 
     print('wait...')
@@ -291,6 +301,7 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
 
     re=('RIGHT_GAZE_X' in participant_data.columns)
     le=('LEFT_GAZE_X' in participant_data.columns)
+    
     if re & le:        
         R=sum(participant_data['RIGHT_GAZE_X']!=0)
         L=sum(participant_data['LEFT_GAZE_X']!=0)
@@ -301,7 +312,7 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
             trackerdEye=str(Eye[1])
     elif (re) & (not le):
         trackerdEye=str(Eye[0])
-    elif (lr) & (not re):
+    elif (le) & (not re):
         trackerdEye=str(Eye[1])
             
 
@@ -341,12 +352,13 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
     TABLE_subject = pd.DataFrame( index =range(0,len(ends)),columns=columns)
     PSOs_ch1=[]
     PSOs_ch2=[]
+    PSOs_min_row=[]
     
+
     gaze_at_start_all=[]
     gaze_at_end_all=[]
 
-
-
+  
     if ('SAMPLE_MESSAGE' in participant_data.columns) &  (target_onset_msg!="" ) & ( target_timeout_msg!=""):
         
         
@@ -379,10 +391,9 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
     
     
             
-
     for s_i in range(len(ends)):
 
- 
+        
         saccade_gaze_x=Gaze_x[starts[s_i]:ends[s_i]]
         saccade_gaze_y=Gaze_y[starts[s_i]:ends[s_i]]
 
@@ -394,40 +405,62 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
         saccade_acc_y=Acc_y[starts[s_i]:ends[s_i]]
 
 
+
+        if (len(saccade_gaze_x)==0) | (len(saccade_gaze_y)==0):
+            gaze_at_start_all.append((None,None))
+            gaze_at_end_all.append((None,None))
+            PSOs_ch1.append([])
+            PSOs_ch2.append([])
+            PSOs_min_row.append([])
+            
+            continue
+
         TABLE_subject.loc[s_i,('name')]=name
         TABLE_subject.loc[s_i,('group')]=participant_group
 
         TABLE_subject.loc[s_i,('eye_tracked')]=trackerdEye
 
-
+        
         ## amplitude
+
         if (np.isnan( saccade_gaze_x.iloc[0]) | np.isnan(saccade_gaze_y.iloc[0]) | np.isnan(saccade_gaze_x.iloc[len(saccade_gaze_x)-1]) | np.isnan(saccade_gaze_y.iloc[len(saccade_gaze_y)-1])):
             TABLE_subject.loc[s_i,('amp_pix')]=np.nan
         else:
 
             TABLE_subject.loc[s_i,('amp_pix')]=distance.euclidean([saccade_gaze_x.iloc[0],saccade_gaze_y.iloc[0]],[saccade_gaze_x.iloc[len(saccade_gaze_x)-1],saccade_gaze_y.iloc[len(saccade_gaze_y)-1]])
-        
+
+    
+
+            
+            
         ## Method1:
 #         TABLE_subject.loc[s_i,('amp_deg')]=  pixels_to_degrees(TABLE_subject.loc[s_i,('amp_pix')])
         ## Method2:
         vel_norm=[ np.linalg.norm(vvv) for vvv in zip(saccade_vel_x,saccade_vel_y)]
+        
+   
+        TABLE_subject.loc[s_i,('amp_deg')]= (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)/1000 * np.nanmean(vel_norm) if len(vel_norm)>0 else np.nan
 
-        TABLE_subject.loc[s_i,('amp_deg')]= (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)/1000 * np.nanmean(vel_norm)
+        ## saccade duration
+        TABLE_subject.loc[s_i,('duration')]= (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)
 
         ##  vel    
-        TABLE_subject.loc[s_i,('vel_av')]=np.nanmean(vel_norm)                         
+        TABLE_subject.loc[s_i,('vel_av')]=np.nanmean(vel_norm)     if len(vel_norm)>0 else np.nan                     
         TABLE_subject.loc[s_i,('peak_vel')]=np.max(vel_norm)
 
 
         ## acc
         acc_norm=[ np.linalg.norm(vvv) for vvv in zip(saccade_acc_x,saccade_acc_y)]
-        TABLE_subject.loc[s_i,('acc_av')]=np.nanmean(acc_norm)                         
+        TABLE_subject.loc[s_i,('acc_av')]=np.nanmean(acc_norm)         if len(acc_norm)>0 else np.nan                 
 
 
+        
         ## pupil size 
+
         if (trackerdEye +'_PUPIL_SIZE') in participant_data.columns:
             ps=participant_data[trackerdEye +'_PUPIL_SIZE']
-            TABLE_subject.loc[s_i,('pupil_size')]=np.nanmean(ps[starts[s_i]:ends[s_i]])
+  
+            TABLE_subject.loc[s_i,('pupil_size')]=np.nanmean(ps[starts[s_i]:ends[s_i]])   if len(ps[starts[s_i]:ends[s_i]])>0 else np.nan
 
 
         ## angle                                                  
@@ -464,11 +497,16 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
         timestamp_interval=TIMESTAMP[2]-TIMESTAMP[1]
 
 
-        PSO=GetPSO(TIMESTAMP,Gaze_x,Gaze_y,{'start_row':starts[s_i],'end_row':ends[s_i],'angle':TABLE_subject.loc[s_i,('angle')]},int(include_right//timestamp_interval),int(offset_right//timestamp_interval),int(fixation_window//timestamp_interval))
+        PSO=GetPSO(TIMESTAMP,Gaze_x,Gaze_y,
+                   {'start_row':starts[s_i],'end_row':ends[s_i],'angle':TABLE_subject.loc[s_i,('angle')]},
+                   int(include_right//timestamp_interval),
+                   int(offset_right//timestamp_interval),
+                   int(fixation_window//timestamp_interval))
 
 
         ## method1
         TABLE_subject.loc[s_i,('PSO_amp_deg')]= PSO['amp_deg']
+
 
         ## method2
         if ('RESOLUTION_X' in participant_data.columns) and ('RESOLUTION_Y' in participant_data.columns):
@@ -493,19 +531,24 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
         gaze_at_end_all.append(PSO['gaze_at_end'])
         PSOs_ch1.append(PSO['channel_1'])
         PSOs_ch2.append(PSO['channel_2'])
+        PSOs_min_row.append(PSO['PSO_min_row'])
 
-
-    
 
 
     TABLE_subject['PSO_ch1']= PSOs_ch1
     TABLE_subject['PSO_ch2']= PSOs_ch2
+    TABLE_subject['PSO_min_row']=PSOs_min_row
     TABLE_subject['A']= gaze_at_start_all
     TABLE_subject['B']= gaze_at_end_all
-    
 
+
+    not_valid=len(TABLE_subject)-len(TABLE_subject.dropna(subset=['PSO_ch1']))
     
-    print('%s saccades were not valid!' %(len(TABLE_subject)-len(TABLE_subject.dropna(subset=['PSO_ch1'])) ))
+    if not_valid==1:
+        print('%s saccade was not valid!' %(not_valid ))
+    elif not_valid>1:
+        print('%s saccades were not valid!' %(not_valid ))
+                
 
     return TABLE_subject
 
@@ -633,7 +676,7 @@ def AverageCurves(selected_saccades,SIGNAL_WINDOW,timestamp_interval,channel='PS
 
     
     for sac_ind, sac in selected_saccades.iterrows():
-
+#         print(type(sac[channel]))
         for pair in sac[channel]:
 
             if (int(pair[0]) in df.index):
