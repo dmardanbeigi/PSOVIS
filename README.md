@@ -1,4 +1,4 @@
-![alt text](https://github.com/dmardanbeigi/PSOVIS/blob/master/results/exp1/Vids_ad138fb.png)
+![alt text](https://github.com/dmardanbeigi/PSOVIS/blob/master/results/PS/PS_ad020jwp.png)
 
 # PSOVIS
 
