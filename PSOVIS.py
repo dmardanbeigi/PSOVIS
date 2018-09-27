@@ -66,7 +66,8 @@ from lib import PSOVIS_tools as PSOVIS_tools
 # import seaborn as sns
 
 
-Experiment='pso'
+Experiment='PS'
+
 
 folder_data='./data/' + Experiment + '/'
 folder_tables='./data/' + Experiment + '/processed_tables/'
@@ -78,11 +79,14 @@ PSOVIS_tools.Create_Folder(folder_results)
 
 PSO_SIGNAL_WINDOW=(-25,50) # in ms relative to when PSO min happens (first bump)
 
-include_right=200 # [in ms]. how many ms after the end of the saccade should be included in the data
+include_right=200 # [in ms]. how many ms after the first peak of the pso should be included in the data
 
 offset_right=40  # [in ms]. This defines how many ms after the end of the saccade we should take the fixation for spatial alignment
 
-fixation_window=30 ## [in ms] 
+fixation_window=30 ## [in ms] fixation defined by taking the median of PSO_fixation_duration ms
+
+
+
 
 
 
@@ -91,8 +95,9 @@ delimiter="\t"
 
 # target_onset_msg='Target_display'#OR leave it empty ''
 # target_timeout_msg='Target_timeout'#OR leave it empty ''
-target_onset_msg=''#OR leave it empty ''
-target_timeout_msg=''#OR leave it empty ''
+
+target_onset_msg='' #OR leave it empty ''
+target_timeout_msg='' #OR leave it empty ''
 
 
 
@@ -135,7 +140,17 @@ for idx, participant in enumerate(participants):
     else:
         print('extracting saccades for %s'%participant)
 
-        saccades=PSOVIS_tools.ExtractSaccades(participant,folder_data+participant+datafile_prefix,Experiment,'control',delimiter,target_onset_msg,target_timeout_msg,include_right,offset_right,fixation_window)
+        
+        saccades=PSOVIS_tools.ExtractSaccades(participant,folder_data+participant+datafile_prefix,participant_group='control',delimiter=delimiter,
+                                                PSO_include_right=include_right,
+                                                PSO_fixation_offset_right=offset_right,
+                                                PSO_fixation_duration=fixation_window)
+                              
+
+
+
+
+                                               
         saccades.loc[:,'angle_group_selected']=1
         saccades.loc[:,'amp_deg_selected']=1
         saccades.loc[:,'vel_av_selected']=1
@@ -215,8 +230,9 @@ for idx, participant in enumerate(participants):
         
     ## Load participant original data to access gaze data
     print('wait...')
-
+    print('loading ', folder_data+participant+datafile_prefix)
     participant_data = pd.ExcelFile(folder_data+participant+datafile_prefix)
+    
     participant_data = participant_data.parse(participant_data.sheet_names[0])
     participant_data=participant_data.replace('.', np.NaN)
     participant_data=participant_data.replace(np.NaN, 0) # this also converts the columns data types to float if possible

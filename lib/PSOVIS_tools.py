@@ -23,13 +23,20 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>
 ------------------------------------------------------
 '''
 
+import numpy as np
+
+
+
+import pyximport
+pyximport.install(setup_args={"include_dirs":np.get_include()})
+from lib import cython_code
 
 import math
 # from skimage.external.tifffile.tifffile import astype
 blit=False
 from pylab import *
 
-import numpy as np
+
 from scipy.spatial import distance
 from scipy.signal import argrelmax, argrelmin,argrelextrema
 import matplotlib
@@ -129,9 +136,10 @@ def FillGaps(b):
     b[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), b[~mask])
     return(b)
 
+
 def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_window):
 
-
+    time_correction_multiplier=TIMESTAMP.diff().median()
 
     ## pre-saccade fixation
     A_x=(np.nanmedian(Gaze_x[saccade['start_row']-fixation_window:saccade['start_row']]))
@@ -141,7 +149,7 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
     ## define pivot point for data rotation (different than A)
     Piv_x=np.nanmedian(Gaze_x[saccade['start_row']-5:saccade['start_row']+5])
     Piv_y=np.nanmedian(Gaze_y[saccade['start_row']-5:saccade['start_row']+5])
-    Piv=(Piv_x,Piv_y)
+    Piv=[Piv_x,Piv_y]
     
     ## define rotation matrix
     ang=np.deg2rad(saccade['angle'])
@@ -161,7 +169,7 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
 #     print(A,B,Piv,B_rotated)
     if np.isnan(ang) | np.isnan(Piv_x) | np.isnan(Piv_y) | np.isnan(A_x)|np.isnan(A_y)| np.isnan(B_x)|np.isnan(B_y):
 #         print(Gaze_x[saccade['start_row']-5:saccade['end_row']+5])
-        return {'PSO_max_row':np.nan,'PSO_min_row':np.nan , 'amp_pix_ch1':np.nan, 'amp_deg':np.nan ,'channel_1':np.nan,'channel_2':np.nan,'gaze_at_start':np.nan,'gaze_at_end':np.nan}
+        return {'Zero_row':np.nan, 'channel_1':np.nan,'channel_2':np.nan,'gaze_at_start':np.nan,'gaze_at_end':np.nan}
     
     
     ## gaze data
@@ -170,13 +178,31 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
     GAZE['TIMESTAMP']=TIMESTAMP[saccade['start_row']-fixation_window:saccade['end_row']+include_right]
 
 
+    gaze_ch1=[]
+    gaze_ch2=[]
+    
+    
+    
+#     for row in GAZE.itertuples(index=True, name='Pandas'):
+# #         print(R.T)
+#         print(getattr(row,'gaze_x'))         
+#         gaze_ch1.append(cython_code.Transfer(getattr(row,'gaze_x'), getattr(row,'gaze_y'),Piv,R.T))
+#         gaze_ch2.append(cython_code.Transfer(getattr(row,'gaze_x'), getattr(row,'gaze_y'),Piv,R.T))
+# # 
+    gaze_ch1=cython_code.Transfer(list(GAZE.gaze_x),list(GAZE.gaze_y) ,Piv,[[c, -s], [s, c]],0)
 
+
+    gaze_ch2=cython_code.Transfer(list(GAZE.gaze_x),list(GAZE.gaze_y) ,Piv,[[c, -s], [s, c]],1)
+
+
+    GAZE['gaze_ch1']=gaze_ch1
+    GAZE['gaze_ch2']=gaze_ch2
 
     ## Rotate Gaze and add them to a new column
-    GAZE['gaze_ch1']=GAZE.apply(lambda row: -(np.dot([row.gaze_x-Piv_x,row.gaze_y-Piv_y] , R.T)[0,0]+ Piv_x)  , axis=1)
-    GAZE['gaze_ch2']=GAZE.apply(lambda row: -(np.dot([row.gaze_x-Piv_x,row.gaze_y-Piv_y] , R.T)[0,1]+ Piv_y) , axis=1)
+#     GAZE['gaze_ch1']=GAZE.apply(lambda row: -(np.dot([row.gaze_x-Piv_x,row.gaze_y-Piv_y] , R.T)[0,0]+ Piv_x)  , axis=1)
+#     GAZE['gaze_ch2']=GAZE.apply(lambda row: -(np.dot([row.gaze_x-Piv_x,row.gaze_y-Piv_y] , R.T)[0,1]+ Piv_y) , axis=1)
     
-
+    
 
    ##.....Temporal alignment (Shifting the curves horizontally)
     
@@ -214,10 +240,33 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
 
 
 
+    #Align Spatially
+    # Redefine fixation based on pso min and not saccade end
+        ## post_saccade fixation 
+    B_x=np.nanmedian(Gaze_x[min_frame_index +offset_right:min_frame_index+offset_right+fixation_window])
+    B_y=np.nanmedian(Gaze_y[min_frame_index +offset_right:min_frame_index+offset_right+fixation_window])
+    B=(B_x,B_y)
+    ## rotate point B (translate to pivot>rotate>translate back)
+    tmp=np.array(np.dot([B_x-Piv_x , B_y-Piv_y], R.T))
+    (B_x_r,B_y_r)=(tmp[0,:][0]+Piv_x,  tmp[0,:][1]+Piv_y)
+    B_rotated=(B_x_r,B_y_r)
+
+    t_0=GAZE.iloc[0]['TIMESTAMP']
+    gaze_ch1=[]
+    gaze_ch2=[]
+    time=[]
+    for row in GAZE.itertuples(index=True, name='Pandas'):     
+        gaze_ch1.append(getattr(row,'gaze_ch1')+B_rotated[0] )
+        gaze_ch2.append(getattr(row,'gaze_ch2')+B_rotated[1] )
+        t1=getattr(row,'TIMESTAMP')-t_0
+        time.append(t1)
+    GAZE['gaze_ch1']=gaze_ch1
+
 
     ## Align spatially
-    GAZE['gaze_ch1']=GAZE.apply(lambda row: row.gaze_ch1+B_rotated[0]  , axis=1)
-    GAZE['gaze_ch2']=GAZE.apply(lambda row: row.gaze_ch2+B_rotated[1] , axis=1)
+    GAZE['gaze_ch2']=gaze_ch2
+    GAZE['time']=time
+    t_min= GAZE.loc[min_frame_index-1,'time']
  
 
     
@@ -225,60 +274,112 @@ def GetPSO(TIMESTAMP,Gaze_x,Gaze_y,saccade,include_right,offset_right,fixation_w
     
 
     
-    if np.isnan(min_frame_index):
-        GAZE['time2']= GAZE.time
-    else:
-        GAZE['time2']= GAZE.apply(lambda row: row.time - GAZE.loc[min_frame_index,'time'], axis=1)
-    
-    
-    
-    GAZE['nan']=np.nan
+    time2=[]
+    for row in GAZE.itertuples(index=True, name='Pandas'):
+        if np.isnan(min_frame_index):
+            time2.append(getattr(row,'time'))
+        else:
+            time2.append(getattr(row,'time')- t_min)
+    GAZE['time2']=time2
     
 
+
+
+
+    ## -------------------------  detect pso extrema
+    ##-----------------------------------------------
+
+
+    # # we limit the pso window to pso_period
+    # pso_df_limited=pso_df[pso_df.time.between(pso_period[0],pso_period[1])]
+
+    n=3 # number of points to be checked before and after 
+    # Find local peaks
+    GAZE['min'] = GAZE.iloc[argrelextrema(GAZE.gaze_ch1.values, np.less_equal, order=n)[0]]['gaze_ch1']
+    GAZE['max'] = GAZE.iloc[argrelextrema(GAZE.gaze_ch1.values, np.greater_equal, order=n)[0]]['gaze_ch1']
+
+    GAZE.loc[~GAZE['min'].isnull(),'extrema_type']= -1 # stands for minimum
+    GAZE.loc[~GAZE['max'].isnull(),'extrema_type']= +1 # for maximum
+
+    # plt.scatter(GAZE.time2, GAZE['min'], c='r')
+    # plt.scatter(GAZE.time2, GAZE['max'], c='g')
+    # plt.plot(GAZE.time2, GAZE['gaze_ch1'])
+    # plt.show()
+
+
+
     
-    ## prepare output 
-    if np.isnan(min_frame_index): ## return nan if no min is found
-        GAZE['CH1']=GAZE.loc[:,['time','nan']] .apply(tuple, axis=1)
-        GAZE['CH2']=GAZE.loc[:,['time','nan']] .apply(tuple, axis=1)
-   
-    else:
-        GAZE['CH1']=GAZE.loc[:,['time2','gaze_ch1']] .apply(tuple, axis=1)
-        GAZE['CH2']=GAZE.loc[:,['time2','gaze_ch2']] .apply(tuple, axis=1)
+    ch1=[]
+    ch2=[]
+    for row in GAZE.itertuples(index=True, name='Pandas'):
         
-    GAZE['CH1']= GAZE.apply(lambda row: list(row.CH1), axis=1)
-    GAZE['CH2']= GAZE.apply(lambda row: list(row.CH2), axis=1)
-    
+        if np.isnan(min_frame_index): ## return nan if no min is found
+            ch1.append([getattr(row,'time'),np.nan,np.nan] )
+            ch2.append([getattr(row,'time'),np.nan ,np.nan] )
+            print('no min found for pso for saccade %s'%saccade['saccade_index'])
+        else:
+            ch1.append([getattr(row,'time2'),getattr(row,'gaze_ch1'),getattr(row,'extrema_type')  ] )
+            ch2.append([getattr(row,'time2'),getattr(row,'gaze_ch2'),getattr(row,'extrema_type') ] )
+                        
+            
 
-   
-    ## get PSO amp
-    GAZE_slice=GAZE[GAZE.time2.between(0,15,inclusive=True)]
-
-    
-    PSO_max_row=GAZE_slice.gaze_ch1.idxmax()
-    PSO_min_row=GAZE_slice.gaze_ch1.idxmin()
-     
-    
-    PSO_amp= GAZE_slice.gaze_ch1.max()-GAZE_slice.gaze_ch1.min()
-
-    PSO_amp_deg = pixels_to_degrees(PSO_amp)
-
-    return {'PSO_max_row':PSO_max_row,'PSO_min_row':PSO_min_row , 'amp_pix_ch1':PSO_amp, 'amp_deg':PSO_amp_deg ,'channel_1':np.array(GAZE['CH1'].tolist()),'channel_2':np.array(GAZE['CH2'].tolist()),'gaze_at_start':A,'gaze_at_end':B}
-    
+    GAZE['CH1']=ch1
+    GAZE['CH2']=ch2
+        
 
 
-def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,target_timeout_msg,include_right,offset_right,fixation_window):
-    
-    
 
 
-    columns=['name','group','eye_tracked',
-             'reaction_time','amp_pix','amp_deg','vel_av','peak_vel','acc_av','pupil_size','angle',
+    # GAZE.loc[~GAZE['extrema_type'].isnull(),['extrema_type','time','signal']].values.tolist()
+
+
+
+
+    return {'Zero_row':GAZE[GAZE.time2==0].index.values[0] ,'channel_1':np.array(GAZE['CH1'].tolist()),'channel_2':np.array(GAZE['CH2'].tolist()),'gaze_at_start':A,'gaze_at_end':B}
+
+
+
+
+
+
+
+
+
+
+
+def pixels_to_degrees_res_based(dx=None,dy=None,resxy_av=None):
+    '''
+    converting amplitude measured in pixels to degrees using res data according to EyeLink manual
+    '''
+    if type(dx)!=list:
+        out=math.hypot(dx/resxy_av[0], dy/resxy_av[1]) 
+    else:
+        out=[]
+        for x_i,x in dx:   
+            out=math.hypot(x/resxy_av[x_i][0], dy[x_i]/resxy_av[x_i][1])
+        out=np.array(out)
+        
+    return out
+
+
+def ExtractSaccades(name,file,participant_group=None,delimiter='\t',target_onset_msg="",target_timeout_msg="",PSO_include_right=200,PSO_fixation_offset_right=40,PSO_fixation_duration=30):
+    '''
+    PSO_include_right [ms] how many ms after the end of the saccade should be included in the data
+    PSO_fixation_offset_right [ms] how many ms after the first peak of the pso should be included in the data
+    PSO_fixation_duration [ms] fixation defined by taking the median of PSO_fixation_duration ms
+
+
+    '''
+
+
+
+    columns=['name','group','eye_tracked','saccade_index',
+             'reaction_time','amp_pix','amp_deg','vel_av','peak_vel','peak_vel_row','acc_av','pupil_size','angle',
              'trial_index','start_row','end_row',
-             'PSO_ch1','PSO_ch2','PSO_amp_deg','PSO_min_row']
+             'PSO_ch1','PSO_ch2','PSO_RES','PSO_zero_row']
 
     
-    
-#     participant_data = pd.read_csv(file, delimiter=delimiter, na_values=['.'], low_memory=True)
+    print('loading data file ...')
     
     participant_data = pd.ExcelFile(file)
     participant_data = participant_data.parse(participant_data.sheet_names[0])
@@ -289,10 +390,9 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
 
    
 
-    
 
 
-    print('wait...')
+
     participant_data=participant_data.reset_index(drop=True)
 
     ## Determining which eye was tracked for this participant
@@ -301,7 +401,6 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
 
     re=('RIGHT_GAZE_X' in participant_data.columns)
     le=('LEFT_GAZE_X' in participant_data.columns)
-    
     if re & le:        
         R=sum(participant_data['RIGHT_GAZE_X']!=0)
         L=sum(participant_data['LEFT_GAZE_X']!=0)
@@ -322,16 +421,27 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
     Gaze_x=participant_data[trackerdEye +'_GAZE_X']
     Gaze_y=participant_data[trackerdEye +'_GAZE_Y']
     
+    blink=participant_data[trackerdEye +'_IN_BLINK']
+
+    res_x=participant_data['RESOLUTION_X']
+    res_y=participant_data['RESOLUTION_Y']
+    
 
     Gaze_x=Gaze_x.replace(0, np.nan)
     Gaze_y=Gaze_y.replace(0, np.nan)
 
- 
-
-
+    # print('adding vel column ... ')
     ## TODO_2: calculate velocity and acceleration if they don't exist in the file
-    Vel_x=participant_data[trackerdEye +'_VELOCITY_X']
-    Vel_y=participant_data[trackerdEye +'_VELOCITY_Y']
+    vel_col=[]
+    for row in participant_data.itertuples(index=True, name='Pandas'):
+        vel_col.append(np.linalg.norm([getattr(row, trackerdEye +'_VELOCITY_X'),getattr(row, trackerdEye +'_VELOCITY_Y')]))
+    participant_data.loc[:,'vel']=vel_col
+    Vel=participant_data.vel
+
+    # participant_data.loc[:,'vel']=participant_data.apply(lambda x: np.linalg.norm([x[[trackerdEye +'_VELOCITY_X']],x[[trackerdEye +'_VELOCITY_Y']]]) , axis=1)
+    # Vel=participant_data.vel
+
+
 
     Acc_x=participant_data[trackerdEye +'_ACCELERATION_X']
     Acc_y=participant_data[trackerdEye +'_ACCELERATION_Y']
@@ -342,23 +452,22 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
     in_saccades=participant_data[trackerdEye +'_IN_SACCADE']
 
 
-    
-    starts= [ind+1 for ind, (a, b) in enumerate(zip(in_saccades, in_saccades[1:])) if a-b==-1]
-    ends= [ind for ind, (a, b) in enumerate(zip(in_saccades, in_saccades[1:])) if a-b==1]
+
+
+    saccade_start_end_indices=list(zip(list(participant_data[participant_data[str(trackerdEye +'_IN_SACCADE')].diff()==1].index.values),list(participant_data[participant_data[str(trackerdEye +'_IN_SACCADE')].diff()==-1].index.values-1)))
 
 
     
     ## process all saccades 
-    TABLE_subject = pd.DataFrame( index =range(0,len(ends)),columns=columns)
+    TABLE_subject = pd.DataFrame( index =range(0,len(saccade_start_end_indices)),columns=columns)
     PSOs_ch1=[]
     PSOs_ch2=[]
-    PSOs_min_row=[]
     
 
     gaze_at_start_all=[]
     gaze_at_end_all=[]
 
-  
+
     if ('SAMPLE_MESSAGE' in participant_data.columns) &  (target_onset_msg!="" ) & ( target_timeout_msg!=""):
         
         
@@ -370,10 +479,10 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
         for i,td in enumerate(rows_of_target_display_occurrence):
             ##METHOD1: search on a window of w frames around the event for the longest saccade towards the target
             search_window=300   
-            ci=np.array(starts)
+            ci=np.array(saccade_start_end_indices[:,0])
             ci= np.bitwise_and((td-search_window)<ci,ci <td+search_window)
             try:# couldn't find the reason for the error
-                cd=np.array(Gaze_x[np.array(starts)])-np.array(Gaze_x[np.array(ends)])
+                cd=np.array(Gaze_x[np.array(saccade_start_end_indices[:,0])])-np.array(Gaze_x[np.array(saccade_start_end_indices[:,0])])
       
                 cd[np.invert( ci)]=0
     
@@ -381,94 +490,97 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
                 ##Pick the longest one
                 cd= abs(cd)
                 xmax = argmax(cd)    
-                RT=TIMESTAMP[starts[xmax]]-TIMESTAMP[td]
+                RT=TIMESTAMP[saccade_start_end_indices[:,0][xmax]]-TIMESTAMP[td]
                 TABLE_subject.loc[xmax,'reaction_time']=RT
             except:
                 pass
 
     
     
+
     
-    
+    print('wait')
+    for sac_i,sac in enumerate(saccade_start_end_indices):
+#         print('saccade %s'%sac_i)
+        TABLE_subject.loc[sac_i,'saccade_index']=participant_data.loc[sac[0]+1,trackerdEye +'_SACCADE_INDEX']
+        
+
+        saccade_gaze_x=Gaze_x[sac[0]:sac[1]]
+        saccade_gaze_y=Gaze_y[sac[0]:sac[1]]
+
+        
+        saccade_vel=Vel[sac[0]:sac[1]]
+
+        saccade_acc_x=Acc_x[sac[0]:sac[1]]
+        saccade_acc_y=Acc_y[sac[0]:sac[1]]
+
+
+#         if np.any(blink[sac[0]:sac[1]]==1):
+#             print('saccades %s:%s:%s is a blink saccade'%(sac_i,participant_data.loc[sac[0]+1,trackerdEye +'_SACCADE_INDEX'],sac))
             
-    for s_i in range(len(ends)):
+        ## ignore blink saccades
+        if (len(saccade_gaze_x)==0) | (len(saccade_gaze_y)==0) | np.any(blink[sac[0]:sac[1]]==1):
+            gaze_at_start_all.append((np.nan,np.nan))
+            gaze_at_end_all.append((np.nan,np.nan))
+            PSOs_ch1.append(np.nan)
+            PSOs_ch2.append(np.nan)
 
-        
-        saccade_gaze_x=Gaze_x[starts[s_i]:ends[s_i]]
-        saccade_gaze_y=Gaze_y[starts[s_i]:ends[s_i]]
-
-        
-        saccade_vel_x=Vel_x[starts[s_i]:ends[s_i]]
-        saccade_vel_y=Vel_y[starts[s_i]:ends[s_i]]
-
-        saccade_acc_x=Acc_x[starts[s_i]:ends[s_i]]
-        saccade_acc_y=Acc_y[starts[s_i]:ends[s_i]]
-
-
-
-        if (len(saccade_gaze_x)==0) | (len(saccade_gaze_y)==0):
-            gaze_at_start_all.append((None,None))
-            gaze_at_end_all.append((None,None))
-            PSOs_ch1.append([])
-            PSOs_ch2.append([])
-            PSOs_min_row.append([])
             
             continue
 
-        TABLE_subject.loc[s_i,('name')]=name
-        TABLE_subject.loc[s_i,('group')]=participant_group
 
-        TABLE_subject.loc[s_i,('eye_tracked')]=trackerdEye
+        TABLE_subject.loc[sac_i,('name')]=name
+        TABLE_subject.loc[sac_i,('group')]=participant_group
+
+        TABLE_subject.loc[sac_i,('eye_tracked')]=trackerdEye
 
         
         ## amplitude
 
         if (np.isnan( saccade_gaze_x.iloc[0]) | np.isnan(saccade_gaze_y.iloc[0]) | np.isnan(saccade_gaze_x.iloc[len(saccade_gaze_x)-1]) | np.isnan(saccade_gaze_y.iloc[len(saccade_gaze_y)-1])):
-            TABLE_subject.loc[s_i,('amp_pix')]=np.nan
+            TABLE_subject.loc[sac_i,('amp_pix')]=np.nan
         else:
 
-            TABLE_subject.loc[s_i,('amp_pix')]=distance.euclidean([saccade_gaze_x.iloc[0],saccade_gaze_y.iloc[0]],[saccade_gaze_x.iloc[len(saccade_gaze_x)-1],saccade_gaze_y.iloc[len(saccade_gaze_y)-1]])
+            TABLE_subject.loc[sac_i,('amp_pix')]=distance.euclidean([saccade_gaze_x.iloc[0],saccade_gaze_y.iloc[0]],[saccade_gaze_x.iloc[len(saccade_gaze_x)-1],saccade_gaze_y.iloc[len(saccade_gaze_y)-1]])
 
     
+        ## angle                                                  
+        (Ax,Ay)=(np.nanmedian(Gaze_x[sac[0]:sac[0]+5]),np.nanmedian(Gaze_y[sac[0]:sac[0]+5]))
+        (Bx,By)=(np.nanmedian(Gaze_x[sac[1]:sac[1]+5]),np.nanmedian(Gaze_y[sac[1]:sac[1]+5]))
 
             
-            
-        ## Method1:
-#         TABLE_subject.loc[s_i,('amp_deg')]=  pixels_to_degrees(TABLE_subject.loc[s_i,('amp_pix')])
-        ## Method2:
-        vel_norm=[ np.linalg.norm(vvv) for vvv in zip(saccade_vel_x,saccade_vel_y)]
-        
+        RES_av=[np.mean([res_x.loc[sac[0]],res_x.loc[sac[1]]]),np.mean([res_y.loc[sac[0]],res_y.loc[sac[1]]])]
+        saccade_amp=pixels_to_degrees_res_based(dx= Ax-Bx,dy= Ay-By,resxy_av=RES_av) 
+
+
    
-        TABLE_subject.loc[s_i,('amp_deg')]= (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)/1000 * np.nanmean(vel_norm) if len(vel_norm)>0 else np.nan
+        TABLE_subject.loc[sac_i,('amp_deg')]= saccade_amp # (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)/1000 * np.nanmean(vel_norm) if len(vel_norm)>0 else np.nan
 
         ## saccade duration
-        TABLE_subject.loc[s_i,('duration')]= (TIMESTAMP[ends[s_i]] - TIMESTAMP[starts[s_i]] + 1.0)
+        TABLE_subject.loc[sac_i,('duration')]= (TIMESTAMP[sac[1]] - TIMESTAMP[sac[0]] + 1.0)
 
+
+        
+        
         ##  vel    
-        TABLE_subject.loc[s_i,('vel_av')]=np.nanmean(vel_norm)     if len(vel_norm)>0 else np.nan                     
-        TABLE_subject.loc[s_i,('peak_vel')]=np.max(vel_norm)
-
+        TABLE_subject.loc[sac_i,('vel_av')]=np.nanmean(saccade_vel)     if len(saccade_vel)>0 else np.nan                     
+        TABLE_subject.loc[sac_i,('peak_vel')]=np.max(saccade_vel)
+        TABLE_subject.loc[sac_i,('peak_vel_row')]=saccade_vel.idxmax()
 
         ## acc
         acc_norm=[ np.linalg.norm(vvv) for vvv in zip(saccade_acc_x,saccade_acc_y)]
-        TABLE_subject.loc[s_i,('acc_av')]=np.nanmean(acc_norm)         if len(acc_norm)>0 else np.nan                 
+        TABLE_subject.loc[sac_i,('acc_av')]=np.nanmean(acc_norm)         if len(acc_norm)>0 else np.nan                 
 
 
-        
         ## pupil size 
-
         if (trackerdEye +'_PUPIL_SIZE') in participant_data.columns:
             ps=participant_data[trackerdEye +'_PUPIL_SIZE']
-  
-            TABLE_subject.loc[s_i,('pupil_size')]=np.nanmean(ps[starts[s_i]:ends[s_i]])   if len(ps[starts[s_i]:ends[s_i]])>0 else np.nan
+            TABLE_subject.loc[sac_i,('pupil_size')]=np.nanmean(ps[sac[0]:sac[1]])   if len(ps[sac[0]:sac[1]])>0 else np.nan
 
 
-        ## angle                                                  
-        (Ax,Ay)=(np.nanmedian(Gaze_x[starts[s_i]:starts[s_i]+5]),np.nanmedian(Gaze_y[starts[s_i]:starts[s_i]+5]))
-        (Bx,By)=(np.nanmedian(Gaze_x[ends[s_i]:ends[s_i]+5]),np.nanmedian(Gaze_y[ends[s_i]:ends[s_i]+5]))
 
         
-        TABLE_subject.loc[s_i,('angle')]=CalculateAngle2((Ax,Ay),(Bx,By))
+        TABLE_subject.loc[sac_i,('angle')]=CalculateAngle2((Ax,Ay),(Bx,By))
 
         def AngleGroup(a):
             if (0 <= a <=22 ) | (343<= a <=365) | (158<=a<=202):
@@ -480,76 +592,72 @@ def ExtractSaccades(name,file,exp,participant_group,delimiter,target_onset_msg,t
             else:
                 pass
             
-        TABLE_subject.loc[s_i,('angle_group')]=AngleGroup(CalculateAngle2((Ax,Ay),(Bx,By)))
-
-
-
-        if 'TRIAL_INDEX' in participant_data.columns:
-            TABLE_subject.loc[s_i,('trial_index')]= participant_data['TRIAL_INDEX'][starts[s_i]:ends[s_i]].iloc[0]
+        
+        TABLE_subject.loc[sac_i,('angle_group')]=AngleGroup(CalculateAngle2((Ax,Ay),(Bx,By)))
 
         
 
+        if 'TRIAL_INDEX' in participant_data.columns:
+            TABLE_subject.loc[sac_i,'trial_index']= participant_data['TRIAL_INDEX'][sac[0]:sac[1]].iloc[0]
+
+        
+        
 
         ## end row and start row
-        TABLE_subject.loc[s_i,('start_row')]= int(starts[s_i])
-        TABLE_subject.loc[s_i,('end_row')]= int(ends[s_i])
+        TABLE_subject.loc[sac_i,('start_row')]= int(sac[0])
+        TABLE_subject.loc[sac_i,('end_row')]= int(sac[1])
 
         timestamp_interval=TIMESTAMP[2]-TIMESTAMP[1]
 
 
         PSO=GetPSO(TIMESTAMP,Gaze_x,Gaze_y,
-                   {'start_row':starts[s_i],'end_row':ends[s_i],'angle':TABLE_subject.loc[s_i,('angle')]},
-                   int(include_right//timestamp_interval),
-                   int(offset_right//timestamp_interval),
-                   int(fixation_window//timestamp_interval))
+                   {'start_row':sac[0],'end_row':sac[1],'angle':TABLE_subject.loc[sac_i,('angle')]},
+                   int(PSO_include_right//timestamp_interval),
+                   int(PSO_fixation_offset_right//timestamp_interval),
+                   int(PSO_fixation_duration//timestamp_interval))
 
 
-        ## method1
-        TABLE_subject.loc[s_i,('PSO_amp_deg')]= PSO['amp_deg']
+
+        TABLE_subject.loc[sac_i,('PSO_RES')]= np.nan
+        TABLE_subject.loc[sac_i,('PSO_zero_row')]= PSO['Zero_row']
 
 
-        ## method2
+
+
         if ('RESOLUTION_X' in participant_data.columns) and ('RESOLUTION_Y' in participant_data.columns):
-            if not np.isnan( PSO['PSO_max_row']):              
-                PSO_max_point=(participant_data.loc[PSO['PSO_max_row'],trackerdEye +'_GAZE_X'] ,participant_data.loc[PSO['PSO_max_row'],trackerdEye +'_GAZE_Y'])
-                PSO_min_point=(participant_data.loc[PSO['PSO_min_row'],trackerdEye +'_GAZE_X'] ,participant_data.loc[PSO['PSO_min_row'],trackerdEye +'_GAZE_Y'])
+            if not np.isnan( PSO['Zero_row'] ):              
+                RES=np.linalg.norm([res_x.loc[PSO['Zero_row']],res_y.loc[PSO['Zero_row']]])
+                TABLE_subject.loc[sac_i,('PSO_RES')]=RES
 
-                PSO.update({"amp_pix_in2D":  distance.euclidean(PSO_max_point,PSO_min_point)})## This may not be equal to PSO['amp_pix_ch1']
-                TABLE_subject.loc[s_i,('PSO_amp_pix_in2D')]= PSO['amp_pix_in2D']
+                # TABLE_subject.loc[sac_i,('PSO_amp_deg')]=pixels_to_degrees_res_based(dx= PSO_max_point[0]-PSO_min_point[0],dy= PSO_max_point[1]-PSO_min_point[1],resxy_av=RES_av)
 
-            ## according to the Eyelink manual 
-                PSO_ang_x=(PSO_max_point[0]-PSO_min_point[0])/np.mean([participant_data.loc[PSO['PSO_max_row'] ,'RESOLUTION_X'],participant_data.loc[PSO['PSO_min_row'] ,'RESOLUTION_X']])
-                PSO_ang_y=(PSO_max_point[1]-PSO_min_point[1])/np.mean([participant_data.loc[PSO['PSO_max_row'] ,'RESOLUTION_Y'],participant_data.loc[PSO['PSO_min_row'] ,'RESOLUTION_Y']])
-                TABLE_subject.loc[s_i,('PSO_amp_deg')]=np.linalg.norm((PSO_ang_x,PSO_ang_y))
-        
-            
-            
-        TABLE_subject.loc[s_i,('PSO_amp_pix_ch1')]= PSO['amp_pix_ch1']
+
 
         
         gaze_at_start_all.append(PSO['gaze_at_start'])
         gaze_at_end_all.append(PSO['gaze_at_end'])
         PSOs_ch1.append(PSO['channel_1'])
         PSOs_ch2.append(PSO['channel_2'])
-        PSOs_min_row.append(PSO['PSO_min_row'])
 
 
-
+    
     TABLE_subject['PSO_ch1']= PSOs_ch1
     TABLE_subject['PSO_ch2']= PSOs_ch2
-    TABLE_subject['PSO_min_row']=PSOs_min_row
+
     TABLE_subject['A']= gaze_at_start_all
     TABLE_subject['B']= gaze_at_end_all
-
+    
 
     not_valid=len(TABLE_subject)-len(TABLE_subject.dropna(subset=['PSO_ch1']))
     
     if not_valid==1:
         print('%s saccade was not valid!' %(not_valid ))
     elif not_valid>1:
-        print('%s saccades were not valid!' %(not_valid ))
+        print('%s saccades were not valid among %s' %(not_valid,len(TABLE_subject) ))
                 
-
+    TABLE_subject=TABLE_subject.dropna(subset=['PSO_ch1'])#TABLE_subject
+    TABLE_subject.reset_index( drop=True, inplace=True)
+    
     return TABLE_subject
 
 
